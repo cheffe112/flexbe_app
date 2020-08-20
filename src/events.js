@@ -129,6 +129,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('button_ros_connect').addEventListener('click', UI.Settings.rosConnectClicked);
 
     document.getElementById('select_state_parser').addEventListener('change', UI.Settings.stateParserChanged);
+    document.getElementById('cb_pkg_cache_enabled').addEventListener('change', UI.Settings.pkgCacheEnabledClicked);
     document.getElementById('button_force_discover').addEventListener('click', UI.Settings.forceDiscoverClicked);
 
     document.getElementById('cb_synthesis_enabled').addEventListener('change', UI.Settings.synthesisEnabledClicked);
@@ -209,6 +210,10 @@ document.addEventListener('DOMContentLoaded', function() {
             allow_close = confirm(txt);
         }
         if (allow_close) {
+            RC.PubSub.shutdown();
+            ROS.shutdown();
+            IO.PackageParser.stopWatching();
+            IO.StateParser.close();
             this.close(true);
         }
     });

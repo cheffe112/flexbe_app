@@ -2,6 +2,7 @@ IO.StateParser = new (function() {
 	var that = this;
 	var os = require('os');
 	var spawn = require('child_process').spawn;
+	var python = 'python' + (process.env.ROS_PYTHON_VERSION != undefined? process.env.ROS_PYTHON_VERSION : '');
 	var crypto = require('crypto');
 	var md5 = str => crypto.createHash('md5').update(str).digest('hex');
 
@@ -20,6 +21,7 @@ for data in iter(sys.stdin.readline, ""):
 	result = {'id': request['id'], 'state_defs': state_defs}
 	try:
 		pkg = __import__(request['import_path'], fromlist=[request['import_path']])
+		del sys.modules[pkg.__name__]  # prevent module caching (to allow state reloading)
 		def is_state(member):
 			return (inspect.isclass(member) and
 					member.__module__ == pkg.__name__ and
@@ -47,9 +49,14 @@ for data in iter(sys.stdin.readline, ""):
 				raise NotImplementedError()  # prevent further instantiation to avoid side-effects
 			EventState.__init__ = __event_init
 			try:
-				cls(*args)
-			except Exception:
-				pass  # above will raise error, but in the best case, we updated state_def
+				cls(*args)  # pass variable names for resolving symbols later
+			except NotImplementedError:  # this error type is expected
+				pass  # we do nothing because state_def has been updated already
+			except Exception as e:  # any other error is passed onwards
+				raise Exception(
+					"Cannot instantiate state '%s' to determine interface, "
+					"consider removing any code before 'super' in '__init__'. "
+					"Error: %s" % (cls.__name__, str(e)))
 			state_def['class_vars'] = [n for n, t in cls.__dict__.items()
 				if not inspect.isfunction(t) and not n.startswith('__')]
 			state_defs.append(state_def)
@@ -71,7 +78,7 @@ for data in iter(sys.stdin.readline, ""):
 	var parseCallbacks = [];
 
 	var spawnLoader = function() {
-		loader = spawn('python', ['-c', impl]);
+		loader = spawn(python, ['-c', impl]);
 		loader.stdout.on('data', (data) => {
 			buffer += data;
 			var try_parse = true;
@@ -135,7 +142,7 @@ for data in iter(sys.stdin.readline, ""):
 		// Return all params as list
 		var param_pattern = /def __init__\(self, ?([^)]+)\):/i;
 		// Extract parameters of super class call, such as outcomes.
-		var super_pattern = /super\(.*\)\.__init__\(((?:.|\s)*?)\)\n/i;
+		var super_pattern = /super\(.*\)\.__init__\(((?:.|\s)*?)\)/i;
 
 		var name_desc_results = content.match(name_desc_pattern);
 		if (name_desc_results == null) {
@@ -264,13 +271,13 @@ for data in iter(sys.stdin.readline, ""):
 					state_def['state_class'],
 					parseDocumentation(state_def['state_doc']),
 					import_path,
-					[].concat(state_def['state_params']),
-					[].concat(state_def['state_outcomes']),
-					[].concat(state_def['state_input']),
-					[].concat(state_def['state_output']),
-					[].concat(state_def['state_params_values']),
-					[].concat(state_def['state_autonomy']),
-					[].concat(state_def['class_vars'])
+					[].concat(state_def['state_params'] || []),
+					[].concat(state_def['state_outcomes'] || []),
+					[].concat(state_def['state_input'] || []),
+					[].concat(state_def['state_output'] || []),
+					[].concat(state_def['state_params_values'] || []),
+					[].concat(state_def['state_autonomy'] || []),
+					[].concat(state_def['class_vars'] || [])
 				));
 			} else {
 				callback(undefined);
@@ -288,6 +295,8 @@ for data in iter(sys.stdin.readline, ""):
 	}
 
 	var parseDocumentation = function(docstring) {
+		if (typeof docstring != "string" || docstring == "")
+			return new WS.Documentation("[no documentation]");
 		var state_desc = "";
 		var argument_doc = [];
 		var last_argument = undefined;
