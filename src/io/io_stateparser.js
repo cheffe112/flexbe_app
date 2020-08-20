@@ -11,6 +11,7 @@ IO.StateParser = new (function() {
 import sys
 import inspect
 import json
+import smach
 from flexbe_core import EventState
 # for some reason need iter(..) call as in https://bugs.python.org/issue26290
 for data in iter(sys.stdin.readline, ""):
@@ -27,9 +28,15 @@ for data in iter(sys.stdin.readline, ""):
 			state_def = dict()
 			state_def['state_class'] = cls.__name__
 			state_def['state_doc'] = inspect.getdoc(cls)
-			argspec = inspect.getargspec(cls.__init__)
-			args = [arg for arg in argspec.args if arg != 'self']
-			argdefs = [repr(default) for default in list(argspec.defaults or [])]
+			args = []
+			argdefs = []
+			sys.stderr.write("cls: (" + str(cls.__name__) + ") ")
+			sys.stderr.flush()
+			for cl in list(inspect.getmro(type(cls))):
+				if cl is not smach.state.State and cl is not object:
+					argspec = inspect.getargspec(cls.__init__)
+					args += [arg for arg in argspec.args if arg != 'self']
+					argdefs += [repr(default) for default in list(argspec.defaults or [])]
 			state_def['state_params'] = args
 			state_def['state_params_values'] = [''] * (len(args) - len(argdefs)) + argdefs
 			def __event_init(*args, **kwargs):
@@ -247,6 +254,8 @@ for data in iter(sys.stdin.readline, ""):
 					state_def['state_outcomes'] = ['$' + state_def['state_outcomes']];
 					state_def['state_autonomy'] = [];
 				}
+				T.logError(state_def['state_class'])
+				T.logWarn(state_def['state_params'])
 				if (typeof state_def['state_input'] == "string")
 					state_def['state_input'] = ['$' + state_def['state_input']];
 				if (typeof state_def['state_output'] == "string")
